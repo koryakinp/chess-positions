@@ -5,23 +5,17 @@ import re
 from random import shuffle
 from skimage.util.shape import view_as_blocks
 from skimage import io, transform
-from keras.models import Sequential
-from keras.layers.core import Dense, Dropout, Activation, Flatten
-from keras.layers.convolutional import Convolution2D
-
-train_size = 10000
-test_size = 3000
-
-train = glob.glob("./data/train/*.jpeg")
-test = glob.glob("./data/test/*.jpeg")
-
-shuffle(train)
-shuffle(test)
-
-train = train[:train_size]
-test = test[:test_size]
 
 piece_symbols = 'prbnkqPRBNKQ'
+
+dictionary = [
+  '1', '2', '3', '4', '5', '6', '7', '8', 'p', 'r', 'n',
+  'b', 'k', 'q', 'P', 'R', 'N', 'B', 'K', 'Q', '-', 'f']
+
+
+def fen_to_symbols_one_hot(fen):
+    targets = np.array([dictionary.index(symbol) for symbol in fen])
+    return np.eye(len(dictionary))[targets]
 
 
 def process_image(img):
@@ -35,7 +29,7 @@ def process_image(img):
     return tiles.reshape(64, square_size, square_size, 3)
 
 
-def get_fen_from_filename(filename):
+def fen_from_filename(filename):
     base = os.path.basename(filename)
     return os.path.splitext(base)[0]
 
@@ -43,7 +37,7 @@ def get_fen_from_filename(filename):
 def onehot_from_fen(filename):
     eye = np.eye(13)
     output = np.empty((0, 13))
-    fen = get_fen_from_filename(filename)
+    fen = fen_from_filename(filename)
     fen = re.sub('[-]', '', fen)
 
     for char in fen:
@@ -76,7 +70,7 @@ def fen_from_onehot(one_hot):
 
 def train_gen(features, labels, batch_size):
     for i, img in enumerate(features):
-        y = onehot_from_fen(get_fen_from_filename(img))
+        y = onehot_from_fen(img)
         x = process_image(img)
         yield x, y
 
@@ -84,36 +78,3 @@ def train_gen(features, labels, batch_size):
 def pred_gen(features, batch_size):
     for i, img in enumerate(features):
         yield process_image(img)
-
-
-model = Sequential()
-model.add(Convolution2D(32, (3, 3), input_shape=(25, 25, 3)))
-model.add(Activation('relu'))
-model.add(Convolution2D(32, (3, 3)))
-model.add(Activation('relu'))
-model.add(Convolution2D(32, (3, 3)))
-model.add(Activation('relu'))
-model.add(Flatten())
-model.add(Dense(128))
-model.add(Activation('relu'))
-model.add(Dropout(0.4))
-model.add(Dense(13))
-model.add(Activation('softmax'))
-
-model.compile(
-  loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-
-model.fit_generator(train_gen(train, None, 64), steps_per_epoch=train_size)
-
-res = (
-  model.predict_generator(pred_gen(test, 64), steps=test_size)
-  .argmax(axis=1)
-  .reshape(-1, 8, 8)
-)
-
-pred_fens = np.array([build_fen_from_one_hot(one_hot) for one_hot in res])
-test_fens = np.array([get_fen_from_filename(fn) for fn in test])
-
-final_accuracy = (pred_fens == test_fens).astype(float).mean()
-
-print("Final Accuracy: {:1.5f}%".format(final_accuracy))
